@@ -83,8 +83,7 @@ class DBUpdater:
     def read_naver(self, code, company, pages_to_fetch):
         """네이버에서 주식 시세 읽어서 데이터프레임으로 반환"""
         try:
-            url = f"https://finance.naver.com/item/sise_day.nhn?code={code}"
-            
+            url = f"https://finance.naver.com/item/sise_day.nhn?code={code}"            
             headers = {'User-agent': 'Mozilla/5.0'}
             req = requests.get(url, headers=headers)
             html = BeautifulSoup(req.text, 'lxml')
@@ -92,21 +91,35 @@ class DBUpdater:
             if pgrr is None:
                 return None
             s = str(pgrr.a["href"]).split('=')
-            lastpage = s[-1]
-            df = None
-            pages = min(int(lastpage), pages_to_fetch)
+            last_page = s[-1]
+            df = pd.DataFrame()
+            pages = min(int(last_page), pages_to_fetch)
             for page in range(1, pages + 1):
                 req = requests.get(f'{url}&pages={page}', headers=headers)
-                df = pd.concat([df, pd.read_html(req.text, encoding='euc-kr')], ignore_index=True)
+                table_list = pd.read_html(req.text, encoding='euc-kr')
+                if table_list:
+                    df = pd.concat([df, table_list[0]], ignore_index=True)
                 tmnow = datetime.now().strftime('%Y-%m-%d %H:%M')
                 print('[{}] {} ({}) : {:04d}/{:04d} pages are downloading...'.format(tmnow, company, code, page, pages), end="\r")
-            df =df.rename(columns={'날짜':'date','종가':'close','전일비':'diff','시가':'open','고가':'high','저가':'low','거래량':'volume'})
+            df = df.rename(columns={'날짜':'date','종가':'close','전일비':'diff','시가':'open','고가':'high','저가':'low','거래량':'volume'})
             df['date']= df['date'].replace('.','-')
             df = df.dropna()
-            df['diff'] = df['']
-            df[['close', 'open', 'high', 'low', 'volume']] = df[['close', 'open', 'high', 'low', 'volume']].astype(int)
+
+            df['전일비_방향'] = df['diff'].str.extract(r'(\D+)')
+            df['전일비_변화'] = df['diff'].str.extract(r'(\d+,?\d*)')
+            df = df[['date', 'open', 'high', 'low', 'close', '전일비_변화', 'volume']]
+            df = df.rename(columns={'전일비_변화':'diff'})
+
+            df[['date','open','high','low','close','diff','volume']] = df[['date','open','high','low','close','diff','volume']].astype(str)
+            df['close'] = df['close'].str.replace('.0', '').astype(int)
+            df['diff'] = df['diff'].str.replace(',', '').astype(int)
+            df['open'] = df['open'].str.replace('.0', '').astype(int)
+            df['high'] = df['high'].str.replace('.0', '').astype(int)
+            df['low'] = df['low'].str.replace('.0', '').astype(int)
+            df['volume'] = df['volume'].str.replace('.0', '').astype(int)
+            
             df = df[['date','open','high','low','close','diff','volume']]
-            print(f"date: {df['date']}, open: {df['open']}, high: {df['high']}, low: {df['low']}, close: {df['close']}, diff: {df['diff']}, volume: {df['volume']}")
+
         except Exception as e:
             print('Exception occured :', str(e))
             return None
